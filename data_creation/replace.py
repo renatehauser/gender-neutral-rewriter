@@ -6,6 +6,7 @@ import time
 import itertools
 import os
 import uuid
+from pathlib import Path
 
 import spacy
 import nltk
@@ -34,6 +35,7 @@ class Replacer:
         self.outfile_prefix = outprefix
         self.match_level = match_level
         self.terms = self.terminology.gendered_terms if target == "neutral" else self.terminology.neutral_terms
+        self.target = target
         self.matcher = self._get_matcher(self.terms)
 
     def _get_matcher(self, terms):
@@ -64,7 +66,12 @@ class Replacer:
     def _get_replacement(self, match):
         match_id = int(SPACY_MODEL.vocab.strings[match[0]])
         matched_term = self.terminology.terms_by_id[match_id]
-        correspondences = matched_term.correspondences
+        if self.target == "feminine":
+            correspondences = matched_term.f_correspondences
+        elif self.target == "masculine":
+            correspondences = matched_term.m_correspondences
+        else:
+            correspondences = matched_term.correspondences
         if correspondences:
             choice = random.choice(correspondences)
             replacement = self.terminology.terms_by_id[choice].term
@@ -80,38 +87,50 @@ class Replacer:
                 break
             else:
                 yield chunk
+    
+    @staticmethod
+    def _generate_chunks_from_files(files):
+        for fname in files:
+            with open(fname, "r", encoding="utf-8") as inf:
+                yield (fname, inf.readlines())
+        
 
     def _process_chunk(self, chunk):
-        i = str(uuid.uuid4())
-        outfile = os.path.join(self.outfile_prefix, f'output_{i}.gen')
+        # FIXME: this file naming scrambles up the order of the files in the output directory!!!
+        #i = str(uuid.uuid4())
+        #outfile = os.path.join(self.outfile_prefix, f'output_{i}.gen')
+        outfile = os.path.join(self.outfile_prefix, f"replaced.{os.path.basename(chunk[0])}")
         start = time.time()
         print(f"Processing file {outfile}", flush=True)
         with open(outfile, "w", encoding="utf-8") as outf:
-            seg_docs = SPACY_MODEL.pipe(chunk)
+            seg_docs = SPACY_MODEL.pipe(chunk[1])
             print(f"Done creating spacy docs for file {outfile}", flush=True)
             for segment in seg_docs:
                 replaced_segment, _, _ = self._replace_segment(segment)
                 outf.write(replaced_segment)
                 outf.flush
-        print(f"Done with file {outfile} after {time.time() - start}.")
+        print(f"Done with file {outfile} after {time.time() - start}.", flush=True)
         return outfile
 
-    def replace(self, segments_file, outfile, nr_cpus=None, chunk_size=500000):
+    def replace(self, segments_path, outfile, nr_cpus=None, chunk_size=500000):
 
         num_cpus = nr_cpus or (cpu_count() // 2)
         logger.info(f"Running on {num_cpus} CPUs")
+        
+        segments_files = index_files(segments_path)
 
         with Pool(processes=num_cpus) as pool:
-            with open(segments_file, "r", encoding="utf-8") as segments:
-                logger.info(f"Starting replacements in {segments_file}...")
-                start = time.time()
+            #with open(segments_file, "r", encoding="utf-8") as segments:
+            logger.info(f"Starting replacements in {segments_path}...")
+            start = time.time()
 
-                # create chunks from the spacy docs
-                chunks = self._generate_chunks(segments, chunk_size)
-                results = pool.map(self._process_chunk, chunks)
+            # create chunks from the spacy docs
+            # chunks = self._generate_chunks(segments, chunk_size)
+            chunks = self._generate_chunks_from_files(segments_files)
+            results = pool.map(self._process_chunk, chunks)
 
-                end = time.time()
-                logger.info(f"Done after {end - start}s!")
+            end = time.time()
+            logger.info(f"Done after {end - start}s!")
 
     def _replace_segment(self, seg_doc):
         # for reproducibility
@@ -161,12 +180,22 @@ class Replacer:
         return singled_out_matches
 
 
+def index_files(indir, suffixes=""):
+    fnames = []
+    suffixes = [suffixes] if isinstance(suffixes, str) else suffixes
+
+    for suffix in suffixes:
+        fnames += Path(indir).glob("**/*" + suffix)
+    fnames  = [fname for fname in fnames if os.path.isfile(fname)]
+    return fnames
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--terminology", help="Path to terminology csv file")
     parser.add_argument(
         "--segments",
-        help="Path to file containing the segments where neutral matches should be replaced",
+        help="Path to directory with files containing the segments where neutral matches should be replaced",
     )
     parser.add_argument("--match-level", choices=["orth", "lemma"], default="lemma")
     parser.add_argument(
@@ -180,7 +209,7 @@ def parse_args():
     )
     parser.add_argument(
         "--target",
-        choices=["gendered", "neutral"],
+        choices=["masculine", "feminine", "neutral", "gendered"],
         default="gendered",
         help="Set the direction for the replacement.",
     )
@@ -197,7 +226,7 @@ def main(args):
     replacer = Replacer(terminology, args.outprefix, match_level=args.match_level, target=args.target)
     logger.info("Replacer is initialized.")
     outpath = f"{args.outprefix}.{'csv' if args.inspection else 'txt'}"
-    replacer.replace(args.segments, outpath)
+    replacer.replace(args.segments, outpath, nr_cpus=args.cores)
 
 
 if __name__ == "__main__":

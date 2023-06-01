@@ -105,16 +105,20 @@ class Terminology:
             entry["singular_feminine"].add_correspondence(entry.get("singular_gender_neutral"))
         if entry.get("singular_gender_neutral"):
             entry["singular_gender_neutral"].add_correspondence(entry.get("singular_masculine"))
+            entry["singular_gender_neutral"].add_correspondence(entry.get("singular_masculine"), gender="m")
         if entry.get("singular_gender_neutral"):
             entry["singular_gender_neutral"].add_correspondence(entry.get("singular_feminine"))
+            entry["singular_gender_neutral"].add_correspondence(entry.get("singular_feminine"), gender="f")
         if entry.get("plural_masculine"):
             entry["plural_masculine"].add_correspondence(entry.get("plural_gender_neutral"))
         if entry.get("plural_feminine"):
             entry["plural_feminine"].add_correspondence(entry.get("plural_gender_neutral"))
         if entry.get("plural_gender_neutral"):
             entry["plural_gender_neutral"].add_correspondence(entry.get("plural_masculine"))
+            entry["plural_gender_neutral"].add_correspondence(entry.get("plural_masculine"), gender="m")
         if entry.get("plural_gender_neutral"):
             entry["plural_gender_neutral"].add_correspondence(entry.get("plural_feminine"))
+            entry["plural_gender_neutral"].add_correspondence(entry.get("plural_feminine"), gender="f")
 
     def _term_exists(self, term, gender, number, type):
         existing_terms = self._terms_by_string.get(term)
